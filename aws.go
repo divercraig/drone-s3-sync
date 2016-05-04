@@ -82,18 +82,6 @@ func (a *AWS) Upload(local, remote string) error {
 		}
 	}
 
-	/*
-		Set content encoding in s3 while upload.
-		Use: PutObjectInput->ContentEncoding(string)
-		Works only with files containing an extension with a single dot like ".tgz" not ".tar.gz".
-		- usage
-		publish:
-  			s3_sync:
-				content_encoding:
-      				".jgz": gzip
-      				".cgz": gzip
-      				".tgz": gzip
-	*/
 	var contentEncoding string
 	if a.vargs.ContentEncoding.IsString() {
 		contentEncoding = a.vargs.ContentEncoding.String()
@@ -227,16 +215,21 @@ func (a *AWS) Upload(local, remote string) error {
 		}
 
 		debug("Updating metadata for \"%s\" Content-Type: \"%s\", ACL: \"%s\"", local, contentType, access)
-		_, err = a.client.CopyObject(&s3.CopyObjectInput{
+		var input = &s3.CopyObjectInput{
 			Bucket:            aws.String(a.vargs.Bucket),
 			Key:               aws.String(remote),
 			CopySource:        aws.String(fmt.Sprintf("%s/%s", a.vargs.Bucket, remote)),
 			ACL:               aws.String(access),
 			ContentType:       aws.String(contentType),
-			ContentEncoding:   aws.String(contentEncoding),
 			Metadata:          metadata,
 			MetadataDirective: aws.String("REPLACE"),
-		})
+		}
+
+		if(len(contentEncoding) > 0) {
+			input.ContentEncoding = aws.String(contentEncoding)
+		}
+
+		_, err = a.client.CopyObject(input)
 		return err
 	} else {
 		_, err = file.Seek(0, 0)
@@ -245,15 +238,20 @@ func (a *AWS) Upload(local, remote string) error {
 		}
 
 		debug("Uploading \"%s\" with Content-Type \"%s\" and permissions \"%s\"", local, contentType, access)
-		_, err = a.client.PutObject(&s3.PutObjectInput{
+		var input = &s3.PutObjectInput{
 			Bucket:      aws.String(a.vargs.Bucket),
 			Key:         aws.String(remote),
 			Body:        file,
 			ContentType: aws.String(contentType),
-			ContentEncoding: aws.String(contentEncoding),
 			ACL:         aws.String(access),
 			Metadata:    metadata,
-		})
+		}
+
+		if(len(contentEncoding) > 0){
+			input.ContentEncoding = aws.String(contentEncoding)
+		}
+
+		_, err = a.client.PutObject(input)
 		return err
 	}
 }
