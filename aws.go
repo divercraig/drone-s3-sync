@@ -82,6 +82,31 @@ func (a *AWS) Upload(local, remote string) error {
 		}
 	}
 
+	/*
+		Set content encoding in s3 while upload.
+		Use: PutObjectInput->ContentEncoding(string)
+		Works only with files containing an extension with a single dot like ".tgz" not ".tar.gz".
+		- usage
+		publish:
+  			s3_sync:
+				content_encoding:
+      				".jgz": gzip
+      				".cgz": gzip
+      				".tgz": gzip
+	*/
+	var contentEncoding string
+	if a.vargs.ContentEncoding.IsString() {
+		contentEncoding = a.vargs.ContentEncoding.String()
+	} else if !a.vargs.ContentEncoding.IsEmpty() {
+		encodingMap := a.vargs.ContentEncoding.Map()
+		for patternExt := range encodingMap {
+			if patternExt == fileExt {
+				contentEncoding = encodingMap[patternExt]
+				break
+			}
+		}
+	}
+
 	metadata := map[string]*string{}
 	vmap := a.vargs.Metadata.Map()
 	if len(vmap) > 0 {
@@ -109,14 +134,18 @@ func (a *AWS) Upload(local, remote string) error {
 		}
 
 		debug("Uploading \"%s\" with Content-Type \"%s\" and permissions \"%s\"", local, contentType, access)
-		_, err = a.client.PutObject(&s3.PutObjectInput{
+		var input = &s3.PutObjectInput{
 			Bucket:      aws.String(a.vargs.Bucket),
 			Key:         aws.String(remote),
 			Body:        file,
 			ContentType: aws.String(contentType),
 			ACL:         aws.String(access),
 			Metadata:    metadata,
-		})
+		}
+		if(len(contentEncoding) > 0) {
+			input.ContentEncoding = aws.String(contentEncoding)
+		}
+		_, err = a.client.PutObject(input)
 		return err
 	}
 
@@ -136,6 +165,11 @@ func (a *AWS) Upload(local, remote string) error {
 			debug("Content-Type has changed from %s to %s", *head.ContentType, contentType)
 			shouldCopy = true
 		}
+
+		if !shouldCopy && contentEncoding != "" {
+ 			debug("Content-Encoding has changed from to %s", contentEncoding)
+ 			shouldCopy = true
+ 		}
 
 		if !shouldCopy && len(head.Metadata) != len(metadata) {
 			debug("Count of metadata values has changed for %s", local)
@@ -199,6 +233,7 @@ func (a *AWS) Upload(local, remote string) error {
 			CopySource:        aws.String(fmt.Sprintf("%s/%s", a.vargs.Bucket, remote)),
 			ACL:               aws.String(access),
 			ContentType:       aws.String(contentType),
+			ContentEncoding:   aws.String(contentEncoding),
 			Metadata:          metadata,
 			MetadataDirective: aws.String("REPLACE"),
 		})
@@ -215,6 +250,7 @@ func (a *AWS) Upload(local, remote string) error {
 			Key:         aws.String(remote),
 			Body:        file,
 			ContentType: aws.String(contentType),
+			ContentEncoding: aws.String(contentEncoding),
 			ACL:         aws.String(access),
 			Metadata:    metadata,
 		})
